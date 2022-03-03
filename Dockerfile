@@ -1,30 +1,3 @@
-# ------------------------ ImgProxy ------------------------
-
-FROM ubuntu:21.10 as imgproxy_builder
-
-ENV DEBIAN_FRONTEND=noninteractive
-ENV TZ=America/Los_Angeles
-ENV LC_ALL=C
-
-ARG IMGPROXY_SOURCE="imgproxy/imgproxy"
-ARG IMGPROXY_BRANCH=master
-
-RUN apt-get update && \
-    apt-get -y upgrade && \
-    apt-get -y install software-properties-common \
-    apt-transport-https gnupg-agent apt git bash sudo && \
-    apt-key adv --keyserver keyserver.ubuntu.com --recv-keys E2B7D64D93330B78 && \
-    add-apt-repository -y "deb http://ppa.launchpad.net/dhor/myway/ubuntu focal main" && \
-    add-apt-repository -y ppa:longsleep/golang-backports && \
-    git clone https://github.com/${IMGPROXY_SOURCE} -b ${IMGPROXY_BRANCH} $HOME/imgproxy && \
-    cd $HOME/imgproxy && \
-    apt-get update && \
-    apt-get -y upgrade && \
-    apt-get -y install libvips-dev golang-go && \
-    CGO_LDFLAGS_ALLOW="-s|-w" go build -o /usr/local/bin/imgproxy && \
-    cd $HOME && \
-    rm -r imgproxy
-
 # ------------------------ Base OS ------------------------
 
 FROM ubuntu:21.10 as forem
@@ -42,8 +15,11 @@ RUN apt-get update && \
     autoconf bison build-essential libssl-dev \
     libyaml-dev libreadline6-dev zlib1g-dev \
     libncurses5-dev libffi-dev libgdbm-dev net-tools \
-    iproute2 nano redis-server imagemagick systemd \
-    systemd-sysv && \
+    iproute2 nano imagemagick systemd systemd-sysv && \
+    sudo add-apt-repository -y ppa:redislabs/redis && \
+    apt-get update && \
+    apt-get -y upgrade && \
+    apt-get -y install redis && \
     identify -version && \
     redis-server --version && \
     redis-cli --version
@@ -63,9 +39,8 @@ ARG ELASTICSEARCH_VERSION=7.8.0
 ARG FOREM_SOURCE="RedstoneWizard08/forem"
 ARG FOREM_BRANCH=main
 
-# ------------------------ Copy files from ImgProxy builder ------------------------
-
-COPY --from=imgproxy_builder /usr/local/bin/imgproxy /usr/local/bin
+ENV S_POSTGRES_USER=${POSTGRES_USER}
+ENV S_POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
 
 # ------------------------ Ruby & Rails ------------------------
 
@@ -128,12 +103,6 @@ RUN export PATH="$HOME/.rbenv/bin:$PATH" && \
     . "${NVM_DIR}/nvm.sh" && \
     cp .env_sample .env && \
     sed -i "s/postgresql\:\/\/localhost\:5432/postgresql\:\/\/${POSTGRES_USER}\:${POSTGRES_PASSWORD}\@localhost\:5432/g" .env && \
-    echo "" >> .env && \
-    echo "# ImgProxy" >> .env && \
-    echo "IMGPROXY_BIND='0.0.0.0:8083'" >> .env && \
-    echo "IMGPROXY_ENDPOINT='http://localhost:8083'" >> .env && \
-    echo "IMGPROXY_KEY='$(xxd -g 2 -l 64 -p /dev/random | tr -d '\n')'" >> .env && \
-    echo "IMGPROXY_SALT='$(xxd -g 2 -l 64 -p /dev/random | tr -d '\n')'" >> .env && \
     bundle install && \ 
     yarn install
 
@@ -163,7 +132,9 @@ ENV S_NVM_DIR=${NVM_DIR}
 RUN apt-get -y autoremove && \
     apt-get -y clean && \
     apt-get -y autoclean && \
-    rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/*
+    rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/* && \
+    mkdir -p /elastic-temp && \
+    cp -r /var/lib/elasticsearch/* /elastic-temp
 
 # ------------------------ Initialization ------------------------
 

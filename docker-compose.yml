@@ -1,0 +1,17 @@
+version: "3"
+services:
+  forem:
+    image: ghcr.io/redstonewizard08/forem/forem:6
+    user: root
+    environment:
+      URL: https://forums.nosadnile.net
+      COMMUNITY: NoSadNile Network
+      ENVIRONMENT: production
+      EMAIL: forums@nosadnile.net
+      SECRET: devel
+    volumes:
+      - ./data/postgres:/var/lib/postgresql/13/main:delegated
+      - ./data/redis:/var/lib/redis:delegated
+      - ./data/elastic:/var/lib/elasticsearch:delegated
+    ports:
+      - 4700:3000
