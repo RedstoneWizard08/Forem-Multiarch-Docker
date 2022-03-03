@@ -157,7 +157,7 @@ RUN apt-get -y install imagemagick && \
 #    ln -s /usr/local/lib/libMagickWand-7.Q16HDRI.so.10.0.0 /usr/local/lib/libMagickWand-7.Q16HDRI.so && \
 #    ln -s /usr/local/lib/libMagickWand-7.Q16HDRI.so.10.0.0 /usr/local/lib/libMagickWand-7.Q16HDRI.so.10 && \
 #    ldconfig /usr/local/lib && \
-    magick identify -version
+    identify -version
 
 # ------------------------ Copy files from Redis builder ------------------------
 
