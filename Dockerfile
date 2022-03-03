@@ -1,33 +1,33 @@
 # ------------------------ ImageMagick ------------------------
 
-FROM ubuntu:21.10 as imagemagick_builder
+# FROM ubuntu:21.10 as imagemagick_builder
 
-ENV DEBIAN_FRONTEND=noninteractive
-ENV TZ=America/Los_Angeles
-ENV LC_ALL=C
+# ENV DEBIAN_FRONTEND=noninteractive
+# ENV TZ=America/Los_Angeles
+# ENV LC_ALL=C
 
-ARG IMAGEMAGICK_SOURCE="ImageMagick/ImageMagick"
-ARG IMAGEMAGICK_BRANCH=main
+# ARG IMAGEMAGICK_SOURCE="ImageMagick/ImageMagick"
+# ARG IMAGEMAGICK_BRANCH=main
 
-RUN apt-get update && \
-    apt-get -y upgrade && \
-    apt-get -y install build-essential \
-    checkinstall libx11-dev libxext-dev \
-    zlib1g-dev libpng-dev libjpeg-dev \
-    libfreetype6-dev libxml2-dev libltdl-dev \
-    pkg-config make cmake gcc g++ libjemalloc-dev \
-    libreadline6-dev tcl fondu ghostscript libfreetype-dev \
-    ghostscript-x bash sudo git && \
-    git clone https://github.com/${IMAGEMAGICK_SOURCE}.git -b ${IMAGEMAGICK_BRANCH} $HOME/ImageMagick && \
-    cd $HOME/ImageMagick && \
-    ./configure --with-modules && \
-    make && \
-    make check || true && \
-    make install && \
-    ldconfig /usr/local/lib && \
-    magick identify -version && \
-    cd $HOME && \
-    rm -r ImageMagick
+# RUN apt-get update && \
+#     apt-get -y upgrade && \
+#     apt-get -y install build-essential \
+#     checkinstall libx11-dev libxext-dev \
+#     zlib1g-dev libpng-dev libjpeg-dev \
+#     libfreetype6-dev libxml2-dev libltdl-dev \
+#     pkg-config make cmake gcc g++ libjemalloc-dev \
+#     libreadline6-dev tcl fondu ghostscript libfreetype-dev \
+#     ghostscript-x bash sudo git && \
+#     git clone https://github.com/${IMAGEMAGICK_SOURCE}.git -b ${IMAGEMAGICK_BRANCH} $HOME/ImageMagick && \
+#     cd $HOME/ImageMagick && \
+#     ./configure --with-modules && \
+#     make && \
+#     make check || true && \
+#     make install && \
+#     ldconfig /usr/local/lib && \
+#     magick identify -version && \
+#     cd $HOME && \
+#     rm -r ImageMagick
 
 # ------------------------ Redis ------------------------
 
@@ -137,26 +137,26 @@ ARG FOREM_BRANCH=main
 
 # ------------------------ Copy files from ImageMagick builder ------------------------
 
-COPY --from=imagemagick_builder /usr/local/lib/* /usr/local/lib
-COPY --from=imagemagick_builder /usr/local/share/doc/ImageMagick-7 /usr/local/share/doc
-COPY --from=imagemagick_builder /usr/local/etc/ImageMagick-7 /usr/local/etc
-COPY --from=imagemagick_builder /usr/local/include/ImageMagick-7 /usr/local/include
-COPY --from=imagemagick_builder /usr/local/bin/* /usr/local/bin
+#COPY --from=imagemagick_builder /usr/local/lib/* /usr/local/lib
+#COPY --from=imagemagick_builder /usr/local/share/doc/ImageMagick-7 /usr/local/share/doc
+#COPY --from=imagemagick_builder /usr/local/etc/ImageMagick-7 /usr/local/etc
+#COPY --from=imagemagick_builder /usr/local/include/ImageMagick-7 /usr/local/include
+#COPY --from=imagemagick_builder /usr/local/bin/* /usr/local/bin
 
-RUN apt-get -y install libltdl-dev && \
-    rm /usr/local/lib/libMagick++-7.Q16HDRI.so \
-    /usr/local/lib/libMagick++-7.Q16HDRI.so.5 \
-    /usr/local/lib/libMagickCore-7.Q16HDRI.so \
-    /usr/local/lib/libMagickCore-7.Q16HDRI.so.10 \
-    /usr/local/lib/libMagickWand-7.Q16HDRI.so \
-    /usr/local/lib/libMagickWand-7.Q16HDRI.so.10 && \
-    ln -s /usr/local/lib/libMagick++-7.Q16HDRI.so.5.0.0 /usr/local/lib/libMagick++-7.Q16HDRI.so && \
-    ln -s /usr/local/lib/libMagick++-7.Q16HDRI.so.5.0.0 /usr/local/lib/libMagick++-7.Q16HDRI.so.5 && \
-    ln -s /usr/local/lib/libMagickCore-7.Q16HDRI.so.10.0.0 /usr/local/lib/libMagickCore-7.Q16HDRI.so && \
-    ln -s /usr/local/lib/libMagickCore-7.Q16HDRI.so.10.0.0 /usr/local/lib/libMagickCore-7.Q16HDRI.so.10 && \
-    ln -s /usr/local/lib/libMagickWand-7.Q16HDRI.so.10.0.0 /usr/local/lib/libMagickWand-7.Q16HDRI.so && \
-    ln -s /usr/local/lib/libMagickWand-7.Q16HDRI.so.10.0.0 /usr/local/lib/libMagickWand-7.Q16HDRI.so.10 && \
-    ldconfig /usr/local/lib && \
+RUN apt-get -y install imagemagick && \
+#    rm /usr/local/lib/libMagick++-7.Q16HDRI.so \
+#    /usr/local/lib/libMagick++-7.Q16HDRI.so.5 \
+#    /usr/local/lib/libMagickCore-7.Q16HDRI.so \
+#    /usr/local/lib/libMagickCore-7.Q16HDRI.so.10 \
+#    /usr/local/lib/libMagickWand-7.Q16HDRI.so \
+#    /usr/local/lib/libMagickWand-7.Q16HDRI.so.10 && \
+#    ln -s /usr/local/lib/libMagick++-7.Q16HDRI.so.5.0.0 /usr/local/lib/libMagick++-7.Q16HDRI.so && \
+#    ln -s /usr/local/lib/libMagick++-7.Q16HDRI.so.5.0.0 /usr/local/lib/libMagick++-7.Q16HDRI.so.5 && \
+#    ln -s /usr/local/lib/libMagickCore-7.Q16HDRI.so.10.0.0 /usr/local/lib/libMagickCore-7.Q16HDRI.so && \
+#    ln -s /usr/local/lib/libMagickCore-7.Q16HDRI.so.10.0.0 /usr/local/lib/libMagickCore-7.Q16HDRI.so.10 && \
+#    ln -s /usr/local/lib/libMagickWand-7.Q16HDRI.so.10.0.0 /usr/local/lib/libMagickWand-7.Q16HDRI.so && \
+#    ln -s /usr/local/lib/libMagickWand-7.Q16HDRI.so.10.0.0 /usr/local/lib/libMagickWand-7.Q16HDRI.so.10 && \
+#    ldconfig /usr/local/lib && \
     magick identify -version
 
 # ------------------------ Copy files from Redis builder ------------------------
