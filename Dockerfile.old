@@ -1,0 +1,203 @@
+FROM ubuntu:21.10
+
+# Noninteractive
+ENV DEBIAN_FRONTEND=noninteractive
+ENV TZ=Pacific/Los_Angeles
+ENV LC_ALL=C
+
+# Root user
+USER root
+
+# Initial libraries
+RUN apt-get update && \
+    apt-get -y upgrade && \
+    apt-get -y install sudo bash \
+    apt-transport-https curl \
+    gnupg-agent software-properties-common \
+    ca-certificates wget apt lsb-release \
+    python3 kmod git
+
+# SystemD in Docker
+RUN wget https://raw.githubusercontent.com/gdraheim/docker-systemctl-replacement/master/files/docker/systemctl3.py -O /usr/local/bin/systemctl && \
+    chmod a+rx /usr/local/bin/systemctl
+
+# Clone Forem
+RUN echo "Cloning forem..." && git clone https://github.com/redstonewizard08/forem.git /forem
+WORKDIR /forem
+
+# Bash
+SHELL [ "/bin/bash", "-c" ]
+
+# RbENV
+RUN cp .env_sample .env && \
+    apt-get update && \
+    apt-get -y upgrade && \
+    apt-get -y install git curl autoconf bison build-essential \
+    libssl-dev libyaml-dev libreadline6-dev zlib1g-dev \
+    libncurses5-dev libffi-dev libgdbm6 libgdbm-dev libdb-dev && \
+    git clone https://github.com/rbenv/rbenv.git ~/.rbenv && \
+    echo 'export PATH="$HOME/.rbenv/bin:$PATH"' >> ~/.bashrc && \
+    echo 'eval "$(rbenv init -)"' >> ~/.bashrc && \
+    source ~/.bashrc && \
+    exec $SHELL
+
+# Ruby build
+RUN git clone https://github.com/rbenv/ruby-build.git ~/.rbenv/plugins/ruby-build && \
+    echo 'export PATH="$HOME/.rbenv/plugins/ruby-build/bin:$PATH"' >> ~/.bashrc && \
+    source ~/.bashrc && \
+    exec $SHELL
+
+# Ruby
+RUN export PATH="$HOME/.rbenv/bin:$PATH" && \
+    eval "$(rbenv init -)" && \
+    export PATH="$HOME/.rbenv/plugins/ruby-build/bin:$PATH" && \
+    rbenv install $(cat /forem/.ruby-version) && \
+    rbenv global $(cat /forem/.ruby-version)
+
+# Node.js, NPM, and Yarn
+ENV NVM_DIR=/usr/local/nvm
+ENV NODE_VERSION=16
+RUN mkdir -p /usr/local/nvm && curl -fsSL https://raw.githubusercontent.com/creationix/nvm/v0.39.1/install.sh | bash && \
+    chmod -R a+rwx $NVM_DIR && \
+    . "$NVM_DIR/nvm.sh" && \
+    nvm install $NODE_VERSION && \
+    nvm use $NODE_VERSION && \
+    npm install --global yarn@latest npm@latest
+
+# PostgreSQL
+RUN apt-get update  && \
+    apt-get -y upgrade  && \
+    apt-get -y install postgresql postgresql-contrib libpq-dev
+
+# PostgreSQL User
+RUN systemctl enable --now postgresql && \
+    service postgresql start && \
+    sudo -u postgres createuser -s root && \
+    sudo -u postgres createdb root && \
+    sudo -u postgres psql -c "ALTER USER root WITH PASSWORD 'root';"
+
+# ImageMagick
+RUN apt-get update && \
+    apt-get -y upgrade && \
+    apt-get -y install imagemagick
+
+# Redis
+RUN apt-get update && \
+    apt-get -y upgrade && \
+    apt-get -y install redis-server && \
+    systemctl enable --now redis-server && \
+    service redis-server start
+
+# ElasticSearch
+RUN curl -fsSLo "elasticsearch-oss-7.8.0-$(dpkg --print-architecture).deb" "https://artifacts.elastic.co/downloads/elasticsearch/elasticsearch-oss-7.8.0-$(dpkg --print-architecture).deb" && \
+    apt-get -y install "./elasticsearch-oss-7.8.0-$(dpkg --print-architecture).deb" && \
+    rm "elasticsearch-oss-7.8.0-$(dpkg --print-architecture).deb" && \
+    systemctl enable --now elasticsearch && \
+    service elasticsearch start
+
+# ImgProxy
+RUN git clone https://github.com/imgproxy/imgproxy.git /imgproxy && \
+    cd /imgproxy && \
+    add-apt-repository "deb http://ppa.launchpad.net/dhor/myway/ubuntu focal main" && \
+    add-apt-repository ppa:longsleep/golang-backports && \
+    apt-get update && \
+    apt-get -y upgrade && \
+    apt-get -y install libvips-dev golang-go && \
+    CGO_LDFLAGS_ALLOW="-s|-w" go build -o /usr/local/bin/imgproxy
+
+# ImgProxy ENV
+RUN echo "" >> .env && \
+    echo "# ImgProxy" >> .env && \
+    echo "IMGPROXY_ENDPOINT='http://localhost:8080'" >> .env && \
+    echo "IMGPROXY_KEY='$(xxd -g 2 -l 64 -p /dev/random | tr -d '\n')'" >> .env && \
+    echo "IMGPROXY_SALT='$(xxd -g 2 -l 64 -p /dev/random | tr -d '\n')'" >> .env
+
+# Forem Setup
+RUN export PATH="$HOME/.rbenv/bin:$PATH" && \
+    eval "$(rbenv init -)" && \
+    export PATH="$HOME/.rbenv/plugins/ruby-build/bin:$PATH" && \
+    . "$NVM_DIR/nvm.sh" && \
+    apt-get update && \
+    apt-get -y upgrade && \
+    apt-get -y install libcurl4 libcurl4-openssl-dev && \
+    gem install bundler
+
+# Canvas dependencies
+RUN apt-get update && \
+    apt-get -y upgrade && \
+    apt-get -y install build-essential libcairo2-dev \
+    libpango1.0-dev libjpeg-dev libgif-dev librsvg2-dev
+
+# Install dependencies
+RUN sed -i 's/postgresql\:\/\/localhost\:5432/postgresql\:\/\/root\:root\@localhost\:5432/g' /forem/.env && \
+    sed -i 's/protected-mode\ yes/protected-mode\ no/g' /etc/redis/redis.conf && \
+    service elasticsearch start && \
+    service redis-server start && \
+    service postgresql start && \
+    export PATH="$HOME/.rbenv/bin:$PATH" && \
+    eval "$(rbenv init -)" && \
+    export PATH="$HOME/.rbenv/plugins/ruby-build/bin:$PATH" && \
+    . "$NVM_DIR/nvm.sh" && \
+    yarn install && \
+    bundle install
+
+# Working directory
+WORKDIR /forem
+
+# Initialize app
+RUN service elasticsearch start && \
+    service redis-server start && \
+    service postgresql start && \
+    export PATH="$HOME/.rbenv/bin:$PATH" && \
+    eval "$(rbenv init -)" && \
+    export PATH="$HOME/.rbenv/plugins/ruby-build/bin:$PATH" && \
+    . "$NVM_DIR/nvm.sh" && \
+    bin/setup
+
+# Reset database
+# RUN service elasticsearch start && \
+#     service redis-server start && \
+#     service postgresql start && \
+#     export PATH="$HOME/.rbenv/bin:$PATH" && \
+#     eval "$(rbenv init -)" && \
+#     export PATH="$HOME/.rbenv/plugins/ruby-build/bin:$PATH" && \
+#     . "$NVM_DIR/nvm.sh" && \
+#     bundle exec rails db:reset
+
+# # Update data
+# RUN service elasticsearch start && \
+#     service redis-server start && \
+#     service postgresql start && \
+#     export PATH="$HOME/.rbenv/bin:$PATH" && \
+#     eval "$(rbenv init -)" && \
+#     export PATH="$HOME/.rbenv/plugins/ruby-build/bin:$PATH" && \
+#     . "$NVM_DIR/nvm.sh" && \
+#     bundle exec rails data_updates:run
+
+# Webpack dist
+RUN service elasticsearch start && \
+    service redis-server start && \
+    service postgresql start && \
+    export PATH="$HOME/.rbenv/bin:$PATH" && \
+    eval "$(rbenv init -)" && \
+    export PATH="$HOME/.rbenv/plugins/ruby-build/bin:$PATH" && \
+    . "$NVM_DIR/nvm.sh" && \
+    /forem/bin/webpack
+
+# Add entrypoint & clean
+ADD *.js /
+ADD docker-entrypoint.sh /docker-entrypoint.sh
+RUN chmod a+rx /docker-entrypoint.sh && \
+    apt-get update && \
+    apt-get -y upgrade && \
+    apt-get -y install net-tools iproute2 nano && \
+    apt-get -y autoremove && \
+    apt-get -y clean && \
+    apt-get -y autoclean && \
+    rm -rf /var/lib/apt/lists/*
+
+# Expose port
+EXPOSE 3000
+
+# Start app
+CMD [ "/bin/bash", "/docker-entrypoint.sh" ]
