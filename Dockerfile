@@ -168,9 +168,6 @@ COPY --from=redis_builder /usr/local/bin/redis-cli /usr/local/bin
 COPY --from=redis_builder /usr/local/bin/redis-sentinel /usr/local/bin
 COPY --from=redis_builder /usr/local/bin/redis-server /usr/local/bin
 
-COPY --from=redis_builder /etc/redis/redis.conf /etc/redis/redis.conf
-COPY --from=redis_builder /lib/systemd/system/redis-server.service /lib/systemd/system/redis-server.service
-
 RUN yes O | apt-get -y install redis-server
 RUN rm /usr/bin/redis-server \
     /usr/bin/redis-benchmark \
@@ -179,6 +176,9 @@ RUN rm /usr/bin/redis-server \
     /usr/bin/redis-cli && \
     redis-server --version && \
     redis-cli --version
+
+COPY --from=redis_builder /etc/redis/redis.conf /etc/redis/redis.conf
+COPY --from=redis_builder /lib/systemd/system/redis-server.service /lib/systemd/system/redis-server.service
 
 # ------------------------ Copy files from ImgProxy builder ------------------------
 
