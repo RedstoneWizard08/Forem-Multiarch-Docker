@@ -1,79 +1,3 @@
-# ------------------------ ImageMagick ------------------------
-
-# FROM ubuntu:21.10 as imagemagick_builder
-
-# ENV DEBIAN_FRONTEND=noninteractive
-# ENV TZ=America/Los_Angeles
-# ENV LC_ALL=C
-
-# ARG IMAGEMAGICK_SOURCE="ImageMagick/ImageMagick"
-# ARG IMAGEMAGICK_BRANCH=main
-
-# RUN apt-get update && \
-#     apt-get -y upgrade && \
-#     apt-get -y install build-essential \
-#     checkinstall libx11-dev libxext-dev \
-#     zlib1g-dev libpng-dev libjpeg-dev \
-#     libfreetype6-dev libxml2-dev libltdl-dev \
-#     pkg-config make cmake gcc g++ libjemalloc-dev \
-#     libreadline6-dev tcl fondu ghostscript libfreetype-dev \
-#     ghostscript-x bash sudo git && \
-#     git clone https://github.com/${IMAGEMAGICK_SOURCE}.git -b ${IMAGEMAGICK_BRANCH} $HOME/ImageMagick && \
-#     cd $HOME/ImageMagick && \
-#     ./configure --with-modules && \
-#     make && \
-#     make check || true && \
-#     make install && \
-#     ldconfig /usr/local/lib && \
-#     magick identify -version && \
-#     cd $HOME && \
-#     rm -r ImageMagick
-
-# ------------------------ Redis ------------------------
-
-FROM ubuntu:21.10 as redis_builder
-
-ENV DEBIAN_FRONTEND=noninteractive
-ENV TZ=America/Los_Angeles
-ENV LC_ALL=C
-
-ARG REDIS_SOURCE="redis/redis"
-ARG REDIS_BRANCH="6.2"
-
-RUN apt-get update && \
-    apt-get -y upgrade && \
-    apt-get -y install software-properties-common \
-    apt-transport-https gnupg-agent apt git build-essential \
-    libltdl-dev pkg-config make cmake gcc g++ libjemalloc-dev \
-    libreadline6-dev tcl checkinstall libx11-dev libxext-dev \
-    zlib1g-dev bash sudo && \
-    apt-get -y install redis-server && \
-    sed -i 's/protected-mode\ yes/protected-mode\ no/g' /etc/redis/redis.conf && \
-    git clone https://github.com/${REDIS_SOURCE} -b ${REDIS_BRANCH} $HOME/redis && \
-    cd $HOME/redis && \
-    cd deps/lua && \
-    make linux && \
-    make test && \
-    cd ../hiredis && \
-    make && \
-    service redis-server start && \
-    make test && \
-    service redis-server stop && \
-    cd ../linenoise && \
-    make && \
-    cd ../hdr_histogram && \
-    make && \
-    cd ../jemalloc && \
-    ./configure && \
-    make && \
-    cd ../.. && \
-    make && \
-    make test && \
-    make install && \
-    sed -i 's/ExecStart\=\/usr\/bin\/redis-server\ \/etc\/redis\/redis.conf\ \-\-supervised\ systemd\ \-\-daemonize\ no/ExecStart\=\/usr\/local\/bin\/redis-server\ \/etc\/redis\/redis.conf\ \-\-daemonize\ no/g' /lib/systemd/system/redis-server.service && \
-    cd $HOME && \
-    rm -r redis
-
 # ------------------------ ImgProxy ------------------------
 
 FROM ubuntu:21.10 as imgproxy_builder
@@ -118,7 +42,11 @@ RUN apt-get update && \
     autoconf bison build-essential libssl-dev \
     libyaml-dev libreadline6-dev zlib1g-dev \
     libncurses5-dev libffi-dev libgdbm-dev net-tools \
-    iproute2 nano
+    iproute2 nano redis-server imagemagick systemd \
+    systemd-sysv && \
+    identify -version && \
+    redis-server --version && \
+    redis-cli --version
 
 SHELL [ "/bin/bash", "-c" ]
 
@@ -134,51 +62,6 @@ ARG ELASTICSEARCH_VERSION=7.8.0
 
 ARG FOREM_SOURCE="RedstoneWizard08/forem"
 ARG FOREM_BRANCH=main
-
-# ------------------------ Copy files from ImageMagick builder ------------------------
-
-#COPY --from=imagemagick_builder /usr/local/lib/* /usr/local/lib
-#COPY --from=imagemagick_builder /usr/local/share/doc/ImageMagick-7 /usr/local/share/doc
-#COPY --from=imagemagick_builder /usr/local/etc/ImageMagick-7 /usr/local/etc
-#COPY --from=imagemagick_builder /usr/local/include/ImageMagick-7 /usr/local/include
-#COPY --from=imagemagick_builder /usr/local/bin/* /usr/local/bin
-
-RUN apt-get -y install imagemagick && \
-#    rm /usr/local/lib/libMagick++-7.Q16HDRI.so \
-#    /usr/local/lib/libMagick++-7.Q16HDRI.so.5 \
-#    /usr/local/lib/libMagickCore-7.Q16HDRI.so \
-#    /usr/local/lib/libMagickCore-7.Q16HDRI.so.10 \
-#    /usr/local/lib/libMagickWand-7.Q16HDRI.so \
-#    /usr/local/lib/libMagickWand-7.Q16HDRI.so.10 && \
-#    ln -s /usr/local/lib/libMagick++-7.Q16HDRI.so.5.0.0 /usr/local/lib/libMagick++-7.Q16HDRI.so && \
-#    ln -s /usr/local/lib/libMagick++-7.Q16HDRI.so.5.0.0 /usr/local/lib/libMagick++-7.Q16HDRI.so.5 && \
-#    ln -s /usr/local/lib/libMagickCore-7.Q16HDRI.so.10.0.0 /usr/local/lib/libMagickCore-7.Q16HDRI.so && \
-#    ln -s /usr/local/lib/libMagickCore-7.Q16HDRI.so.10.0.0 /usr/local/lib/libMagickCore-7.Q16HDRI.so.10 && \
-#    ln -s /usr/local/lib/libMagickWand-7.Q16HDRI.so.10.0.0 /usr/local/lib/libMagickWand-7.Q16HDRI.so && \
-#    ln -s /usr/local/lib/libMagickWand-7.Q16HDRI.so.10.0.0 /usr/local/lib/libMagickWand-7.Q16HDRI.so.10 && \
-#    ldconfig /usr/local/lib && \
-    identify -version
-
-# ------------------------ Copy files from Redis builder ------------------------
-
-COPY --from=redis_builder /usr/local/bin/redis-benchmark /usr/local/bin
-COPY --from=redis_builder /usr/local/bin/redis-check-aof /usr/local/bin
-COPY --from=redis_builder /usr/local/bin/redis-check-rdb /usr/local/bin
-COPY --from=redis_builder /usr/local/bin/redis-cli /usr/local/bin
-COPY --from=redis_builder /usr/local/bin/redis-sentinel /usr/local/bin
-COPY --from=redis_builder /usr/local/bin/redis-server /usr/local/bin
-
-RUN yes O | apt-get -y install redis-server
-RUN rm /usr/bin/redis-server \
-    /usr/bin/redis-benchmark \
-    /usr/bin/redis-check-aof \
-    /usr/bin/redis-check-rdb \
-    /usr/bin/redis-cli && \
-    redis-server --version && \
-    redis-cli --version
-
-COPY --from=redis_builder /etc/redis/redis.conf /etc/redis/redis.conf
-COPY --from=redis_builder /lib/systemd/system/redis-server.service /lib/systemd/system/redis-server.service
 
 # ------------------------ Copy files from ImgProxy builder ------------------------
 
