@@ -137,34 +137,26 @@ ARG FOREM_BRANCH=main
 
 # ------------------------ Copy files from ImageMagick builder ------------------------
 
-COPY --from=imagemagick_builder /usr/local/lib/ImageMagick-7.1.0 /usr/local/lib
-COPY --from=imagemagick_builder /usr/local/lib/libMagick*.so /usr/local/lib
-COPY --from=imagemagick_builder /usr/local/lib/libMagick*.so.* /usr/local/lib
-COPY --from=imagemagick_builder /usr/local/lib/libMagick*.a /usr/local/lib
-COPY --from=imagemagick_builder /usr/local/lib/libMagick*.la /usr/local/lib
-COPY --from=imagemagick_builder /usr/local/lib/pkgconfig/ImageMagick*.pc /usr/local/lib/pkgconfig
-COPY --from=imagemagick_builder /usr/local/lib/pkgconfig/Magick*.pc /usr/local/lib/pkgconfig
-
-COPY --from=imagemagick_builder /usr/local/share/doc/ImageMagick-7 /usr/local/share
+COPY --from=imagemagick_builder /usr/local/lib/* /usr/local/lib
+COPY --from=imagemagick_builder /usr/local/share/doc/ImageMagick-7 /usr/local/share/doc
 COPY --from=imagemagick_builder /usr/local/etc/ImageMagick-7 /usr/local/etc
 COPY --from=imagemagick_builder /usr/local/include/ImageMagick-7 /usr/local/include
+COPY --from=imagemagick_builder /usr/local/bin/* /usr/local/bin
 
-COPY --from=imagemagick_builder /usr/local/bin/Magick* /usr/local/bin
-COPY --from=imagemagick_builder /usr/local/bin/animate /usr/local/bin
-COPY --from=imagemagick_builder /usr/local/bin/compare /usr/local/bin
-COPY --from=imagemagick_builder /usr/local/bin/composite /usr/local/bin
-COPY --from=imagemagick_builder /usr/local/bin/conjure /usr/local/bin
-COPY --from=imagemagick_builder /usr/local/bin/convert /usr/local/bin
-COPY --from=imagemagick_builder /usr/local/bin/display /usr/local/bin
-COPY --from=imagemagick_builder /usr/local/bin/identify /usr/local/bin
-COPY --from=imagemagick_builder /usr/local/bin/import /usr/local/bin
-COPY --from=imagemagick_builder /usr/local/bin/magick /usr/local/bin
-COPY --from=imagemagick_builder /usr/local/bin/magick-script /usr/local/bin
-COPY --from=imagemagick_builder /usr/local/bin/mogrify /usr/local/bin
-COPY --from=imagemagick_builder /usr/local/bin/montage /usr/local/bin
-COPY --from=imagemagick_builder /usr/local/bin/stream /usr/local/bin
-
-RUN ldconfig /usr/local/lib && \
+RUN apt-get -y install libltdl-dev && \
+    rm /usr/local/lib/libMagick++-7.Q16HDRI.so \
+    /usr/local/lib/libMagick++-7.Q16HDRI.so.5 \
+    /usr/local/lib/libMagickCore-7.Q16HDRI.so \
+    /usr/local/lib/libMagickCore-7.Q16HDRI.so.10 \
+    /usr/local/lib/libMagickWand-7.Q16HDRI.so \
+    /usr/local/lib/libMagickWand-7.Q16HDRI.so.10 && \
+    ln -s /usr/local/lib/libMagick++-7.Q16HDRI.so.5.0.0 /usr/local/lib/libMagick++-7.Q16HDRI.so && \
+    ln -s /usr/local/lib/libMagick++-7.Q16HDRI.so.5.0.0 /usr/local/lib/libMagick++-7.Q16HDRI.so.5 && \
+    ln -s /usr/local/lib/libMagickCore-7.Q16HDRI.so.10.0.0 /usr/local/lib/libMagickCore-7.Q16HDRI.so && \
+    ln -s /usr/local/lib/libMagickCore-7.Q16HDRI.so.10.0.0 /usr/local/lib/libMagickCore-7.Q16HDRI.so.10 && \
+    ln -s /usr/local/lib/libMagickWand-7.Q16HDRI.so.10.0.0 /usr/local/lib/libMagickWand-7.Q16HDRI.so && \
+    ln -s /usr/local/lib/libMagickWand-7.Q16HDRI.so.10.0.0 /usr/local/lib/libMagickWand-7.Q16HDRI.so.10 && \
+    ldconfig /usr/local/lib && \
     magick identify -version
 
 # ------------------------ Copy files from Redis builder ------------------------
@@ -179,8 +171,8 @@ COPY --from=redis_builder /usr/local/bin/redis-server /usr/local/bin
 COPY --from=redis_builder /etc/redis/redis.conf /etc/redis/redis.conf
 COPY --from=redis_builder /lib/systemd/system/redis-server.service /lib/systemd/system/redis-server.service
 
-RUN apt-get -y install redis-server && \
-    rm /usr/bin/redis-server \
+RUN yes O | apt-get -y install redis-server
+RUN rm /usr/bin/redis-server \
     /usr/bin/redis-benchmark \
     /usr/bin/redis-check-aof \
     /usr/bin/redis-check-rdb \
@@ -191,12 +183,6 @@ RUN apt-get -y install redis-server && \
 # ------------------------ Copy files from ImgProxy builder ------------------------
 
 COPY --from=imgproxy_builder /usr/local/bin/imgproxy /usr/local/bin
-
-RUN imgproxy > /dev/null 2>&1 & \
-    export IMGPROXY_PID=$(echo $!) && \
-    [[ "$(curl -s localhost:8080/health)" == "imgproxy is running" ]] && \
-    ( echo "ImgProxy is running."; kill $IMGPROXY_PID; exit 0; ) || \
-    ( echo "ImgProxy is not running."; kill $IMGPROXY_PID; exit 1; )
 
 # ------------------------ Ruby & Rails ------------------------
 
