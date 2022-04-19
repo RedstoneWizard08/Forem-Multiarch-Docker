@@ -1,24 +1,43 @@
-FROM fedora as ruby
+FROM ubuntu:impish as ruby
 
 LABEL maintainer="Forem Systems Engineering <systems@forem.com>"
 
 USER root
 
-RUN dnf upgrade --setopt install_weak_deps=false -y && dnf install bash && \
-    dnf -y clean all && rm -rf /var/cache/yum && \
-    dnf upgrade -y && dnf install autoconf bison curl \
-    git gzip make patch tar wget xz file gcc-c++ bzip2-devel \
-    gdbm-devel gmp-devel glib2-devel libcurl-devel libxml2-devel \
-    libxslt-devel libffi-devel ncurses-devel openssl-devel \
-    readline-devel redhat-rpm-config --setopt install_weak_deps=false -y && \
-    dnf install ruby ruby-devel ruby-irb ruby-libs rubygems rubygems-devel -y && \
-    dnf -y clean all && rm -rf /var/cache/yum
+ARG DEBIAN_FRONTEND=noninteractive
+ARG RUBY_VERSION=3.0.2
+ARG RUBY_SHORT_VERSION=3.0
+ARG RUBY_URL="https://cache.ruby-lang.org/pub/ruby/${RUBY_SHORT_VERSION}/ruby-${RUBY_VERSION}.tar.gz"
+# export RUBY_URL=https://cache.ruby-lang.org/pub/ruby/3.0/ruby-3.0.2.tar.gz
+
+RUN apt-get update && \
+    apt-get -y upgrade && \
+    apt-get -y install bash autoconf bison curl git gzip \
+    make patch tar wget xz-utils file gcc g++ openssl readline-common \
+    libreadline-dev libzip-dev libxml2-dev libncurses-dev libffi-dev \
+    libxslt1-dev libglib2.0-dev libgmp-dev libgdbm-dev bzip2 \
+    libglib2.0-0 libcurl4-openssl-dev sudo ninja-build gnupg \
+    openssl libssl-dev && \
+    curl -fsSLo ruby.tar.gz "${RUBY_URL}" && \
+    mkdir -p /usr/src && \
+    tar -C /usr/src -zxvf ruby.tar.gz && \
+    rm ruby.tar.gz && \
+    cd /usr/src/ruby-${RUBY_VERSION} && \
+    ./configure && \
+    make && \
+    make install && \
+    cd / && \
+    rm -rf /usr/src/ruby-${RUBY_VERSION} && \
+    apt-get clean && \
+    apt-get -y autoremove && \
+    apt-get -y autoclean && \
+    rm -rf /var/lib/apt/lists/*
 
 ENV BUNDLE_SILENCE_ROOT_WARNING=1
 ENV RUBY_MAJOR=3.0
 ENV RUBY_VERSION=3.0.2
 
-CMD [ "/usr/bin/irb" ]
+CMD [ "/usr/local/bin/irb" ]
 
 FROM ruby as base
 
@@ -26,27 +45,35 @@ FROM base as builder
 
 USER root
 
-RUN curl -sL https://dl.yarnpkg.com/rpm/yarn.repo -o /etc/yum.repos.d/yarn.repo && \
-    dnf install --setopt install_weak_deps=false -y \
-    ImageMagick iproute jemalloc less libcurl libcurl-devel \
-    libffi-devel libxml2-devel libxslt-devel nodejs pcre-devel \
-    postgresql postgresql-devel tzdata yarn && \
-    dnf -y clean all && \
-    rm -rf /var/cache/yum
+RUN curl -fsSL https://dl.yarnpkg.com/debian/pubkey.gpg | apt-key add - && \
+    echo "deb https://dl.yarnpkg.com/debian/ stable main" | tee \
+    /etc/apt/sources.list.d/yarn.list && \
+    curl -fsSL https://deb.nodesource.com/setup_16.x | bash && \
+    apt-get update && \
+    apt-get -y upgrade && \
+    apt-get -y install imagemagick iproute2 libjemalloc-dev libjemalloc2 less curl \
+    libcurl4-openssl-dev libffi-dev libxml2-dev libxslt1-dev nodejs libpcre2-dev \
+    postgresql postgresql-server-dev-13 postgresql-server-dev-all tzdata yarn \
+    ca-certificates apt-transport-https libssl-dev openssl && \
+    apt-get clean && \
+    apt-get -y autoremove && \
+    apt-get -y autoclean && \
+    rm -rf /var/lib/apt/lists/*
 
 ENV BUNDLER_VERSION=2.2.22 BUNDLE_SILENCE_ROOT_WARNING=true BUNDLE_SILENCE_DEPRECATIONS=true
 RUN gem install -N bundler:"${BUNDLER_VERSION}"
 
-ENV APP_USER=forem APP_UID=1000 APP_GID=1000 APP_HOME=/opt/apps/forem \
-    LD_PRELOAD=/usr/lib64/libjemalloc.so.2
+ENV APP_USER=forem APP_UID=1000 APP_GID=1000 APP_HOME=/opt/apps/forem
 RUN mkdir -p ${APP_HOME} && chown "${APP_UID}":"${APP_GID}" "${APP_HOME}" && \
     groupadd -g "${APP_GID}" "${APP_USER}" && \
-    adduser -u "${APP_UID}" -g "${APP_GID}" -d "${APP_HOME}" "${APP_USER}"
+    adduser --uid "${APP_UID}" --gid "${APP_GID}" --home "${APP_HOME}" --disabled-password \
+    "${APP_USER}" && \
+    passwd --delete "${APP_USER}"
 
 ENV DOCKERIZE_VERSION=v0.6.1
-RUN wget https://github.com/jwilder/dockerize/releases/download/"${DOCKERIZE_VERSION}"/dockerize-linux-amd64-"${DOCKERIZE_VERSION}".tar.gz \
-    && tar -C /usr/local/bin -xzvf dockerize-linux-amd64-"${DOCKERIZE_VERSION}".tar.gz \
-    && rm dockerize-linux-amd64-"${DOCKERIZE_VERSION}".tar.gz \
+RUN wget https://github.com/jwilder/dockerize/releases/download/"${DOCKERIZE_VERSION}"/dockerize-linux-$(dpkg --print-architecture)-"${DOCKERIZE_VERSION}".tar.gz \
+    && tar -C /usr/local/bin -xzvf dockerize-linux-$(dpkg --print-architecture)-"${DOCKERIZE_VERSION}".tar.gz \
+    && rm dockerize-linux-$(dpkg --print-architecture)-"${DOCKERIZE_VERSION}".tar.gz \
     && chown root:root /usr/local/bin/dockerize
 
 WORKDIR "${APP_HOME}"
@@ -83,20 +110,25 @@ FROM base as production
 
 USER root
 
-RUN dnf install --setopt install_weak_deps=false -y bash curl ImageMagick \
-                iproute jemalloc less libcurl \
-                postgresql tzdata nodejs libpq \
-                && dnf -y clean all \
-                && rm -rf /var/cache/yum
+RUN curl -fsSL https://deb.nodesource.com/setup_16.x | bash && \
+    apt-get update && \
+    apt-get -y upgrade && \
+    apt-get -y install bash curl imagemagick iproute jemalloc less libcurl \
+    postgresql tzdata nodejs libpq-dev && \
+    apt-get clean && \
+    apt-get -y autoremove && \
+    apt-get -y autoclean && \
+    rm -rf /var/lib/apt/lists/*
 
 ENV BUNDLER_VERSION=2.2.22 BUNDLE_SILENCE_ROOT_WARNING=1
 RUN gem install -N bundler:"${BUNDLER_VERSION}"
 
-ENV APP_USER=forem APP_UID=1000 APP_GID=1000 APP_HOME=/opt/apps/forem \
-    LD_PRELOAD=/usr/lib64/libjemalloc.so.2
+ENV APP_USER=forem APP_UID=1000 APP_GID=1000 APP_HOME=/opt/apps/forem
 RUN mkdir -p ${APP_HOME} && chown "${APP_UID}":"${APP_GID}" "${APP_HOME}" && \
     groupadd -g "${APP_GID}" "${APP_USER}" && \
-    adduser -u "${APP_UID}" -g "${APP_GID}" -d "${APP_HOME}" "${APP_USER}"
+    adduser --uid "${APP_UID}" --gid "${APP_GID}" --home "${APP_HOME}" --disabled-password \
+    "${APP_USER}" && \
+    passwd --delete "${APP_USER}"
 
 COPY --from=builder --chown="${APP_USER}":"${APP_USER}" ${APP_HOME} ${APP_HOME}
 
@@ -114,10 +146,15 @@ FROM builder AS testing
 
 USER root
 
-RUN dnf install --setopt install_weak_deps=false -y \
-    chromium-headless chromedriver && \
-    yum clean all && \
-    rm -rf /var/cache/yum
+RUN apt-get update && \
+    apt-get -y upgrade && \
+    apt-get -y install software-properties-common apt-transport-https && \
+    add-apt-repository -y "deb http://ppa.launchpad.net/canonical-chromium-builds/stage/ubuntu/ bionic main" && \
+    apt-get -y install chromium-browser && \
+    apt-get clean && \
+    apt-get -y autoremove && \
+    apt-get -y autoclean && \
+    rm -rf /var/lib/apt/lists/*
 
 COPY --chown="${APP_USER}":"${APP_USER}" ./forem/spec "${APP_HOME}"/spec
 COPY --from=builder /usr/local/bin/dockerize /usr/local/bin/dockerize
