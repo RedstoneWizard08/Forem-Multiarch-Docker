@@ -1,5 +1,7 @@
 #!/bin/bash
 
+set -e
+
 docker buildx build -t redstonewizard/forem:development -f Dockerfile \
     --progress plain --target development .
 
