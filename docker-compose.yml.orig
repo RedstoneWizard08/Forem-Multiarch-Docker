@@ -1,0 +1,24 @@
+version: "3"
+services:
+  forem:
+    image: redstonewizard/forem
+    user: root
+    environment:
+      URL: https://4700-redstonewizard0-foremmul-mnqv9dy229f.ws-us34.gitpod.io
+      COMMUNITY: NoSadNile Network
+      ENVIRONMENT: production
+      EMAIL: forums@nosadnile.net
+      SECRET: devel
+    volumes:
+      - psql-data:/var/lib/postgresql/13/main
+      - redis-data:/var/lib/redis
+      - elastic-data:/var/lib/elasticsearch
+      - forem-data:/forem
+    ports:
+      - 4700:3000
+
+volumes:
+  psql-data:
+  redis-data:
+  forem-data:
+  elastic-data:

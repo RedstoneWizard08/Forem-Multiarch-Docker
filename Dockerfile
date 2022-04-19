@@ -1,143 +1,132 @@
-# ------------------------ Base OS ------------------------
+FROM redstonewizard/forem-ruby as base
 
-FROM ubuntu:21.10 as forem
+FROM base as builder
 
-ENV DEBIAN_FRONTEND=noninteractive
-ENV TZ=America/Los_Angeles
-ENV LC_ALL=C
+USER root
 
-RUN apt-get update && \
-    apt-get -y upgrade && \
-    apt-get -y install sudo bash \
-    lsb-release wget curl gnupg-agent \
-    ca-certificates software-properties-common \
-    apt python3 kmod git apt-transport-https \
-    autoconf bison build-essential libssl-dev \
-    libyaml-dev libreadline6-dev zlib1g-dev \
-    libncurses5-dev libffi-dev libgdbm-dev net-tools \
-    iproute2 nano imagemagick systemd systemd-sysv && \
-    sudo add-apt-repository -y ppa:redislabs/redis && \
-    apt-get update && \
-    apt-get -y upgrade && \
-    apt-get -y install redis && \
-    identify -version && \
-    redis-server --version && \
-    redis-cli --version
+RUN curl -sL https://dl.yarnpkg.com/rpm/yarn.repo -o /etc/yum.repos.d/yarn.repo && \
+    dnf install --setopt install_weak_deps=false -y \
+    ImageMagick iproute jemalloc less libcurl libcurl-devel \
+    libffi-devel libxml2-devel libxslt-devel nodejs pcre-devel \
+    postgresql postgresql-devel tzdata yarn && \
+    dnf -y clean all && \
+    rm -rf /var/cache/yum
 
-SHELL [ "/bin/bash", "-c" ]
+ENV BUNDLER_VERSION=2.2.22 BUNDLE_SILENCE_ROOT_WARNING=true BUNDLE_SILENCE_DEPRECATIONS=true
+RUN gem install -N bundler:"${BUNDLER_VERSION}"
 
-# ------------------------ Variables ------------------------
+ENV APP_USER=forem APP_UID=1000 APP_GID=1000 APP_HOME=/opt/apps/forem \
+    LD_PRELOAD=/usr/lib64/libjemalloc.so.2
+RUN mkdir -p ${APP_HOME} && chown "${APP_UID}":"${APP_GID}" "${APP_HOME}" && \
+    groupadd -g "${APP_GID}" "${APP_USER}" && \
+    adduser -u "${APP_UID}" -g "${APP_GID}" -d "${APP_HOME}" "${APP_USER}"
 
-ARG POSTGRES_USER=root
-ARG POSTGRES_PASSWORD=root
+ENV DOCKERIZE_VERSION=v0.6.1
+RUN wget https://github.com/jwilder/dockerize/releases/download/"${DOCKERIZE_VERSION}"/dockerize-linux-amd64-"${DOCKERIZE_VERSION}".tar.gz \
+    && tar -C /usr/local/bin -xzvf dockerize-linux-amd64-"${DOCKERIZE_VERSION}".tar.gz \
+    && rm dockerize-linux-amd64-"${DOCKERIZE_VERSION}".tar.gz \
+    && chown root:root /usr/local/bin/dockerize
 
-ARG NVM_VERSION=0.39.1
-ARG NVM_DIR=/usr/lib/nvm
+WORKDIR "${APP_HOME}"
 
-ARG ELASTICSEARCH_VERSION=7.8.0
+COPY ./forem/.ruby-version "${APP_HOME}"/
+COPY ./forem/Gemfile ./forem/Gemfile.lock "${APP_HOME}"/
+COPY ./forem/vendor/cache "${APP_HOME}"/vendor/cache
 
-ARG FOREM_SOURCE="RedstoneWizard08/forem"
-ARG FOREM_BRANCH=main
+RUN bundle config --local build.sassc --disable-march-tune-native && \
+    BUNDLE_WITHOUT="development:test" bundle install --deployment --jobs 4 --retry 5 && \
+    find "${APP_HOME}"/vendor/bundle -name "*.c" -delete && \
+    find "${APP_HOME}"/vendor/bundle -name "*.o" -delete
 
-ENV S_POSTGRES_USER=${POSTGRES_USER}
-ENV S_POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
+COPY ./forem "${APP_HOME}"
 
-# ------------------------ Ruby & Rails ------------------------
+RUN mkdir -p "${APP_HOME}"/public/{assets,images,packs,podcasts,uploads}
 
-RUN git clone https://github.com/rbenv/rbenv.git $HOME/.rbenv && \
-    git clone https://github.com/rbenv/ruby-build.git $HOME/.rbenv/plugins/ruby-build && \
-    echo 'export PATH="$HOME/.rbenv/bin:$PATH"' >> $HOME/.bashrc && \
-    echo 'eval "$(rbenv init -)"' >> $HOME/.bashrc && \
-    export RUBY_VERSION=$(curl -fsSL https://raw.githubusercontent.com/${FOREM_SOURCE}/${FOREM_BRANCH}/.ruby-version) && \
-    export PATH="$HOME/.rbenv/bin:$PATH" && \
-    eval "$(rbenv init -)" && \
-    rbenv install ${RUBY_VERSION} && \
-    rbenv global ${RUBY_VERSION} && \
-    gem install bundler
+RUN sed -i 's/"canvas": "\^2.9.1",/"canvas": "https\:\/\/github.com\/RedstoneWizard08\/node-canvas",/g' package.json && \
+    NODE_ENV=production yarn install
 
-# ------------------------ Node.js & Yarn ------------------------
+RUN RAILS_ENV=production NODE_ENV=production bundle exec rake assets:precompile
 
-RUN mkdir -p ${NVM_DIR} && \
-    curl -fsSL https://raw.githubusercontent.com/nvm-sh/nvm/v${NVM_VERSION}/install.sh | bash && \
-    export NODE_VERSION=$(curl -fsSL https://raw.githubusercontent.com/${FOREM_SOURCE}/${FOREM_BRANCH}/.nvmrc) && \
-    . "${NVM_DIR}/nvm.sh" && \
-    nvm install $NODE_VERSION && \
-    nvm use $NODE_VERSION && \
-    npm install --global yarn@latest npm@latest concurrently@latest && \
-    corepack enable
+RUN echo $(date -u +'%Y-%m-%dT%H:%M:%SZ') >> "${APP_HOME}"/FOREM_BUILD_DATE && \
+    echo $(git rev-parse --short HEAD) >> "${APP_HOME}"/FOREM_BUILD_SHA && \
+    rm -rf "${APP_HOME}"/.git/
 
-# ------------------------ PostgreSQL ------------------------
+RUN rm -rf node_modules vendor/assets spec
 
-RUN apt-get -y install postgresql \
-    postgresql-contrib libpq-dev && \
-    service postgresql start && \
-    sudo -u postgres createuser -s ${POSTGRES_USER} && \
-    sudo -u postgres psql -c "ALTER USER ${POSTGRES_USER} WITH PASSWORD '${POSTGRES_PASSWORD}';" && \
-    sudo -u postgres psql -c "CREATE DATABASE ${POSTGRES_USER};"
+## Production
+FROM base as production
 
-# ------------------------ Elasticsearch ------------------------
+USER root
 
-RUN wget "https://artifacts.elastic.co/downloads/elasticsearch/elasticsearch-oss-${ELASTICSEARCH_VERSION}-$(dpkg --print-architecture).deb" && \
-    apt-get -y install "./elasticsearch-oss-${ELASTICSEARCH_VERSION}-$(dpkg --print-architecture).deb" && \
-    rm "elasticsearch-oss-${ELASTICSEARCH_VERSION}-$(dpkg --print-architecture).deb"
+RUN dnf install --setopt install_weak_deps=false -y bash curl ImageMagick \
+                iproute jemalloc less libcurl \
+                postgresql tzdata nodejs libpq \
+                && dnf -y clean all \
+                && rm -rf /var/cache/yum
 
-# ------------------------ Volumes ------------------------
+ENV BUNDLER_VERSION=2.2.22 BUNDLE_SILENCE_ROOT_WARNING=1
+RUN gem install -N bundler:"${BUNDLER_VERSION}"
 
-VOLUME [ "/var/lib/postgresql/13/main" ]
-VOLUME [ "/var/lib/redis" ]
-VOLUME [ "/var/lib/elasticsearch" ]
+ENV APP_USER=forem APP_UID=1000 APP_GID=1000 APP_HOME=/opt/apps/forem \
+    LD_PRELOAD=/usr/lib64/libjemalloc.so.2
+RUN mkdir -p ${APP_HOME} && chown "${APP_UID}":"${APP_GID}" "${APP_HOME}" && \
+    groupadd -g "${APP_GID}" "${APP_USER}" && \
+    adduser -u "${APP_UID}" -g "${APP_GID}" -d "${APP_HOME}" "${APP_USER}"
 
-# ------------------------ Forem ------------------------
+COPY --from=builder --chown="${APP_USER}":"${APP_USER}" ${APP_HOME} ${APP_HOME}
 
-RUN apt-get -y install libcurl4 \
-    libcurl4-openssl-dev libcairo2-dev \
-    libpango1.0-dev libgif-dev librsvg2-dev && \
-    git clone https://github.com/${FOREM_SOURCE}.git -b ${FOREM_BRANCH} /forem
+USER "${APP_USER}"
+WORKDIR "${APP_HOME}"
 
-WORKDIR /forem
+VOLUME "${APP_HOME}"/public/
 
-# ------------------------ Install Forem dependencies ------------------------
+ENTRYPOINT ["./scripts/entrypoint.sh"]
 
-RUN export PATH="$HOME/.rbenv/bin:$PATH" && \
-    eval "$(rbenv init -)" && \
-    . "${NVM_DIR}/nvm.sh" && \
-    cp .env_sample .env && \
-    sed -i "s/postgresql\:\/\/localhost\:5432/postgresql\:\/\/${POSTGRES_USER}\:${POSTGRES_PASSWORD}\@localhost\:5432/g" .env && \
-    bundle install && \ 
-    yarn install
+CMD ["bundle", "exec", "rails", "server", "-b", "0.0.0.0", "-p", "3000"]
 
-# ------------------------ Configure Forem ------------------------
+## Testing
+FROM builder AS testing
 
-RUN export PATH="$HOME/.rbenv/bin:$PATH" && \
-    eval "$(rbenv init -)" && \
-    . "${NVM_DIR}/nvm.sh" && \
-    service redis-server start && \
-    service postgresql start && \
-    service elasticsearch start && \
-    bin/webpack && \
-    bin/setup
+USER root
 
-# ------------------------ Startup preparation ------------------------
+RUN dnf install --setopt install_weak_deps=false -y \
+    chromium-headless chromedriver && \
+    yum clean all && \
+    rm -rf /var/cache/yum
 
-ADD *.js /
-ADD docker-entrypoint.sh /
-RUN chmod a+rx /docker-entrypoint.sh
+COPY --chown="${APP_USER}":"${APP_USER}" ./forem/spec "${APP_HOME}"/spec
+COPY --from=builder /usr/local/bin/dockerize /usr/local/bin/dockerize
 
-EXPOSE 3000
+RUN chown "${APP_USER}":"${APP_USER}" -R "${APP_HOME}"
 
-ENV S_NVM_DIR=${NVM_DIR}
+USER "${APP_USER}"
 
-# ------------------------ Clean up apt and temporary files ------------------------
+RUN bundle config --local build.sassc --disable-march-tune-native && \
+    bundle config --delete without && \
+    bundle install --deployment --jobs 4 --retry 5 && \
+    find "${APP_HOME}"/vendor/bundle -name "*.c" -delete && \
+    find "${APP_HOME}"/vendor/bundle -name "*.o" -delete
 
-RUN apt-get -y autoremove && \
-    apt-get -y clean && \
-    apt-get -y autoclean && \
-    rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/* && \
-    mkdir -p /elastic-temp && \
-    cp -r /var/lib/elasticsearch/* /elastic-temp
+ENTRYPOINT ["./scripts/entrypoint.sh"]
 
-# ------------------------ Initialization ------------------------
+CMD ["bundle", "exec", "rails", "server", "-b", "0.0.0.0", "-p", "3000"]
 
-FROM forem
+## Development
+FROM builder AS development
 
-CMD [ "/bin/bash", "/docker-entrypoint.sh" ]
+COPY --chown="${APP_USER}":"${APP_USER}" ./forem/spec "${APP_HOME}"/spec
+COPY --from=builder /usr/local/bin/dockerize /usr/local/bin/dockerize
+
+RUN chown "${APP_USER}":"${APP_USER}" -R "${APP_HOME}"
+
+USER "${APP_USER}"
+
+RUN bundle config --local build.sassc --disable-march-tune-native && \
+    bundle config --delete without && \
+    bundle install --deployment --jobs 4 --retry 5 && \
+    find "${APP_HOME}"/vendor/bundle -name "*.c" -delete && \
+    find "${APP_HOME}"/vendor/bundle -name "*.o" -delete
+
+ENTRYPOINT ["./scripts/entrypoint.sh"]
+
+CMD ["bundle", "exec", "rails", "server", "-b", "0.0.0.0", "-p", "3000"]
